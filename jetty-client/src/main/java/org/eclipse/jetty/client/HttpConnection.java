@@ -179,12 +179,15 @@ public abstract class HttpConnection implements Connection
 
     protected SendFailure send(HttpChannel channel, HttpExchange exchange)
     {
-        long nanoTime = System.nanoTime();
-        long timeoutInMs = exchange.getRequest().timeoutIn(nanoTime,MILLISECONDS);
-        if (timeoutInMs>=0)
+        long timeoutAtNanos = exchange.getRequest().getTimeoutAtNanos();
+        if (timeoutAtNanos>=0)
         {
             exchange.getResponseListeners().add(timeout);
-            timeout.schedule(exchange.getRequest());
+            long now = System.nanoTime();
+            if (timeoutAtNanos<=now)
+                exchange.getRequest().abort(new TimeoutException("Total timeout " + exchange.getRequest().getTimeout() + " ms elapsed"));
+            else
+                timeout.schedule(exchange.getRequest(),timeoutAtNanos-now,TimeUnit.NANOSECONDS);
         }
         
         // Forbid idle timeouts for the time window where

@@ -49,7 +49,7 @@ public class CyclicTimeoutTaskTest
         _timeout=new CyclicTimeoutTask(_timer)
         {
             @Override
-            protected void onTimeoutExpired()
+            public void onTimeoutExpired()
             {
                 _expired = true;
             }

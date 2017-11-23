@@ -44,7 +44,7 @@ public class TimeoutCompleteListener extends CyclicTimeoutTask implements Respon
     }
 
     @Override
-    protected void onTimeoutExpired()
+    public void onTimeoutExpired()
     {
         Request request = this.request.getAndSet(null);
         if (LOG.isDebugEnabled())
@@ -64,17 +64,15 @@ public class TimeoutCompleteListener extends CyclicTimeoutTask implements Respon
         }
     }
 
-    public boolean schedule(HttpRequest request)
+    public boolean schedule(HttpRequest request, long delay, TimeUnit units)
     {
-        long timeoutInMs = request.timeoutIn(System.nanoTime(),MILLISECONDS);
         if (LOG.isDebugEnabled())
-            LOG.debug("Scheduled timeout {} ms for {}", timeoutInMs, request);
-        if (timeoutInMs>=0 && this.request.compareAndSet(null,request))
+            LOG.debug("Scheduled timeout {} ms for {}", units.toMillis(delay), request);
+        if (this.request.compareAndSet(null,request))
         {
-            reschedule(timeoutInMs, TimeUnit.MILLISECONDS);
+            reschedule(delay, units);
             return true;
         }
-        
         return false;        
     }
 

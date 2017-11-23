@@ -78,7 +78,7 @@ public class HttpRequest implements Request
     private HttpVersion version = HttpVersion.HTTP_1_1;
     private long idleTimeout;
     private long timeout;
-    private long sentTimestampNanos;
+    private long timeoutAtNanos;
     private ContentProvider content;
     private boolean followRedirects;
     private List<HttpCookie> cookies;
@@ -715,11 +715,6 @@ public class HttpRequest implements Request
     {
         send(this, listener);
     }
-
-    void sent()
-    {
-        sentTimestampNanos = System.nanoTime();
-    }
     
     private void send(HttpRequest request, Response.CompleteListener listener)
     {
@@ -729,24 +724,19 @@ public class HttpRequest implements Request
         client.send(request, responseListeners);
     }
 
-    /**
-     * Get the time until the current request timeout fires
-     * @param nanotime The current nanotime 
-     * @param units The units of the time to return
-     * @return The time until the current request timeout fires;
-     * or 0 if the timeout has expired; or -1 if no timeout applies
-     */
-    public long timeoutIn(long nanotime, TimeUnit units)
+    void sent()
     {
-        long timeoutMs = getTimeout();
-        if (timeoutMs<=0 || sentTimestampNanos==0)
-            return -1;
-        long now = TimeUnit.NANOSECONDS.toMillis(nanotime);
-        long expires = TimeUnit.NANOSECONDS.toMillis(sentTimestampNanos)+timeoutMs;
-        if (expires<=now)
-            return 0;
-
-        return TimeUnit.MILLISECONDS.convert(expires-now,units);
+        long timeout = getTimeout();
+        timeoutAtNanos = timeout<=0?-1:(System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(timeout));
+    }
+    
+    /**
+     * Get the nano time at which the request timeout expires
+     * @return The nano time at which the current request timeout expires or -1 if no timeout.
+     */
+    public long getTimeoutAtNanos()
+    {
+        return timeoutAtNanos;
     }
     
     protected List<Response.ResponseListener> getResponseListeners()

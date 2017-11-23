@@ -67,7 +67,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     private final ProxyConfiguration.Proxy proxy;
     private final ClientConnectionFactory connectionFactory;
     private final HttpField hostField;
-    private final AtomicLong nextTimeout = new AtomicLong(Long.MAX_VALUE);
+    private final AtomicLong nextTimeoutNanos = new AtomicLong(Long.MAX_VALUE);
     private final CyclicTimeoutTask timeout;
     private ConnectionPool connectionPool;
 
@@ -254,12 +254,15 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         {
             if (enqueue(exchanges, exchange))
             {
-                long nanoTime = System.nanoTime();
-                long expiresInMs = request.timeoutIn(nanoTime,MILLISECONDS);
-                if (expiresInMs==0)
-                    request.abort(new TimeoutException("Total timeout " + request.getTimeout() + " ms elapsed"));
-                else if (expiresInMs>0)
-                    scheduleTimeout(nanoTime,expiresInMs);
+                long expiresAtNanos = request.getTimeoutAtNanos();
+                if (expiresAtNanos>0)
+                {
+                    long now = System.nanoTime();
+                    if (expiresAtNanos<=now)
+                        request.abort(new TimeoutException("Total timeout " + request.getTimeout() + " ms elapsed"));
+                    else
+                        scheduleTimeout(expiresAtNanos);
+                }
                 
                 if (!client.isRunning() && exchanges.remove(exchange))
                 {
@@ -286,16 +289,21 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         }
     }
 
-    private void scheduleTimeout(long nanoTime, long expiresInMs)
+    private void scheduleTimeout(long expiresAtNanos)
     {
         // Schedule a timeout for the soonest any known exchange can expire.
         // If subsequently that exchange is removed from the queue, the timeout is not
         // cancelled, instead the entire queue is swept for expired exchanges and a new
         // timeout is set.        
-        long expiresAtMs = NANOSECONDS.toMillis(nanoTime) + expiresInMs;
-        long lastExpiresAtMs = nextTimeout.getAndUpdate(e->Math.min(e,expiresAtMs));
-        if (lastExpiresAtMs!=expiresAtMs)
-            timeout.reschedule(expiresInMs,MILLISECONDS);
+        long lastExpiresAtNanos = nextTimeoutNanos.getAndUpdate(e->Math.min(e,expiresAtNanos));
+        if (lastExpiresAtNanos!=expiresAtNanos)
+        {
+            long delay = expiresAtNanos-System.nanoTime();
+            if (delay<=0)
+                timeout.onTimeoutExpired();
+            else
+                timeout.reschedule(delay,NANOSECONDS);
+        }
     }
     
     protected boolean enqueue(Queue<HttpExchange> queue, HttpExchange exchange)
@@ -510,27 +518,30 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         }
 
         @Override
-        protected void onTimeoutExpired()
+        public void onTimeoutExpired()
         {
-            nextTimeout.set(Long.MAX_VALUE);
-            long nanoTime = System.nanoTime();
-            long nextExpiresInMs = Long.MAX_VALUE;
+            nextTimeoutNanos.set(Long.MAX_VALUE);
+            long now = System.nanoTime();
+            long nextExpiresAtNanos = Long.MAX_VALUE;
             
             // Check all queued exchanges for those that have expired
             // and to determine when the next check must be.
             for (HttpExchange exchange : exchanges)
             {
-                long expiresInMs = exchange.getRequest().timeoutIn(nanoTime,MILLISECONDS);
-                if (expiresInMs==0)
+                long expiresAtNanos = exchange.getRequest().getTimeoutAtNanos();
+                if (expiresAtNanos<=0)
+                    continue;
+                
+                if (expiresAtNanos<=now)
                 {
                     exchange.getRequest().abort(new TimeoutException("Total timeout " + exchange.getRequest().getTimeout() + " ms elapsed"));
                 }
-                else if (expiresInMs>0 && expiresInMs<nextExpiresInMs)
-                    nextExpiresInMs = expiresInMs;
+                else if (expiresAtNanos<nextExpiresAtNanos)
+                    nextExpiresAtNanos = expiresAtNanos;
             }
             
-            if (nextExpiresInMs<Long.MAX_VALUE && client.isRunning())
-                scheduleTimeout(nanoTime,nextExpiresInMs);
+            if (nextExpiresAtNanos<Long.MAX_VALUE && client.isRunning())
+                scheduleTimeout(nextExpiresAtNanos);
         }
     }
 }
