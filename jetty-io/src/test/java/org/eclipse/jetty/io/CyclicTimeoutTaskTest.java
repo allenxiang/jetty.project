@@ -24,13 +24,8 @@ import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.AdvancedRunner;
-import org.eclipse.jetty.util.ArrayTernaryTrie;
-import org.eclipse.jetty.util.ArrayTrie;
-import org.eclipse.jetty.util.TreeTrie;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
-import org.eclipse.jetty.util.thread.Scheduler;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -175,7 +170,6 @@ public class CyclicTimeoutTaskTest
         Assert.assertTrue(_expired);
     }
 
-
     @Test
     @Ignore
     public void testBusy() throws Exception
@@ -200,7 +194,4 @@ public class CyclicTimeoutTaskTest
         Assert.assertFalse(_expired);
         pool.stop();
     }
-
-
-
 }
