@@ -19,34 +19,67 @@
 package org.eclipse.jetty.io;
 
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.toolchain.test.AdvancedRunner;
+import org.eclipse.jetty.util.ArrayTernaryTrie;
+import org.eclipse.jetty.util.ArrayTrie;
+import org.eclipse.jetty.util.TreeTrie;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
+import org.eclipse.jetty.util.thread.Scheduler;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
-@RunWith(AdvancedRunner.class)
+@RunWith(Parameterized.class)
 public class CyclicTimeoutTaskTest
 {
+    @Parameterized.Parameters
+    public static Collection<Object[]> data()
+    {
+        Object[][] data = new Object[][]{
+            {Boolean.TRUE},
+            {Boolean.FALSE}
+        };
+        return Arrays.asList(data);
+    }
+    
+    final boolean _blocking;
     volatile boolean _open;
     volatile boolean _expired;
-
     ScheduledExecutorScheduler _timer = new ScheduledExecutorScheduler();
     CyclicTimeoutTask _timeout;
+    
+
+    public CyclicTimeoutTaskTest(Boolean blocking)
+    {
+        _blocking = blocking.booleanValue();
+    }
 
     @Before
     public void setUp() throws Exception
     {
         _expired=false;
         _timer.start();
-        _timeout=new CyclicTimeoutTask(_timer)
+        
+        _timeout=_blocking
+        ?new BlockingCyclicTimeoutTask(_timer)
+        {
+            @Override
+            public void onTimeoutExpired()
+            {
+                _expired = true;
+            }
+        }
+        :new NonBlockingCyclicTimeoutTask(_timer)
         {
             @Override
             public void onTimeoutExpired()
@@ -54,6 +87,7 @@ public class CyclicTimeoutTaskTest
                 _expired = true;
             }
         };
+        
         _timeout.schedule(1000,TimeUnit.MILLISECONDS);
     }
 

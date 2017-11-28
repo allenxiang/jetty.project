@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.io;
 
-import static java.lang.Long.MAX_VALUE;
-
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.util.thread.Scheduler;
@@ -30,34 +28,9 @@ import org.eclipse.jetty.util.thread.Scheduler;
  * This implementation is optimised assuming that the timeout will mostly
  * be cancelled and then reused with a similar value.
  */
-public abstract class CyclicTimeoutTask
+public interface CyclicTimeoutTask
 {
-    /* The underlying scheduler to use */
-    private final Scheduler _scheduler;
-
-    /* 
-     * The time at which this task will expire (or MAX_VALUE if it will never expire).
-     */
-    private long _expireAtNanos = MAX_VALUE;
-    
-    /*
-     * A reference to a scheduled expiry of the underlying scheduler chain. 
-     */
-    private Scheduled _scheduled ;
-    
-
-    /**
-     * @param scheduler A scheduler used to schedule checks for the idle timeout.
-     */
-    public CyclicTimeoutTask(Scheduler scheduler)
-    {
-        _scheduler = scheduler;
-    }
-
-    public Scheduler getScheduler()
-    {
-        return _scheduler;
-    }
+    Scheduler getScheduler();
     
     /** 
      * Schedule a timer.
@@ -65,20 +38,7 @@ public abstract class CyclicTimeoutTask
      * @param units The units of the delay period.
      * @throws IllegalStateException Thrown if the timer is already set.
      */
-    public void schedule(long delay, TimeUnit units) throws IllegalStateException
-    {
-        synchronized(this)
-        {
-            if (_expireAtNanos!=MAX_VALUE)
-                throw new IllegalStateException("Timeout pending");
-            
-            // Calculate the nanotime at which we will expire
-            long now = System.nanoTime();
-            _expireAtNanos = now + units.toNanos(delay);
-
-            schedule(now);
-        }
-    }
+    void schedule(long delay, TimeUnit units) throws IllegalStateException;
     
     /** 
      * Reschedule a timer, even if already set, cancelled or expired
@@ -86,114 +46,11 @@ public abstract class CyclicTimeoutTask
      * @param units The units of the delay period.
      * @return True if the timer was already set.
      */
-    public boolean reschedule(long delay, TimeUnit units)
-    {   
-        boolean was_scheduled;
-        synchronized(this)
-        {
-            was_scheduled = _expireAtNanos!=MAX_VALUE;
-
-            // Calculate the nanotime at which we will expire
-            long now = System.nanoTime();
-            _expireAtNanos = now + units.toNanos(delay);
-
-            schedule(now);
-        }
-        return was_scheduled;
-    }
+    boolean reschedule(long delay, TimeUnit units);
     
-    private void schedule(long now)
-    {
-        if (_scheduled==null || _scheduled._scheduledAt>_expireAtNanos)
-            _scheduled = new Scheduled(now,_expireAtNanos,_scheduled);
-    }
-   
-    public boolean cancel()
-    {
-        boolean was_scheduled;
-        synchronized(this)
-        {
-            was_scheduled = _expireAtNanos!=MAX_VALUE;
-            _expireAtNanos = MAX_VALUE;
-        }
-        return was_scheduled;
-    }
+    boolean cancel();
     
-    public abstract void onTimeoutExpired();
+    void onTimeoutExpired();
 
-    public void destroy()
-    {
-        synchronized(this)
-        {
-            _expireAtNanos = MAX_VALUE;
-
-            Scheduled scheduled = _scheduled;
-            while (scheduled!=null)
-            {
-                scheduled._task.cancel();
-                scheduled = scheduled._chain;
-            }
-        }
-    }
-    
-    /**
-     * A Scheduled expiry of a real timer.
-     */
-    private class Scheduled implements Runnable
-    {
-        final long _scheduledAt;
-        final Scheduler.Task _task;
-        final Scheduled _chain;
-        
-        Scheduled(long now, long scheduledAt, Scheduled chain)
-        {
-            _scheduledAt = scheduledAt;
-            _task = _scheduler.schedule(this,scheduledAt-now,TimeUnit.NANOSECONDS);
-            _chain = chain;
-        }
-        
-        @Override
-        public void run()
-        {
-            boolean expired = false;
-            synchronized (CyclicTimeoutTask.this)
-            {
-                long now = System.nanoTime();
-             
-                // Remove ourselves from the chain (and any strangely unexpired prior Scheduled)
-                Scheduled scheduled = _scheduled;
-                while (scheduled!=null)
-                {
-                    Scheduled last = scheduled;
-                    scheduled = scheduled._chain;
-                    if (last==this)
-                        break;
-                }
-                _scheduled = scheduled;
-                
-                
-                if (now>=_expireAtNanos)
-                {
-                    expired = true;
-                    _expireAtNanos = MAX_VALUE;
-                }
-                else if (now!=MAX_VALUE)
-                {
-                    schedule(now);
-                }                    
-            }
-            
-            if (expired)
-                onTimeoutExpired();
-            
-        }
-        
-        @Override
-        public String toString()
-        {
-            return String.format("Scheduled@%x:%d",hashCode(),_expireAtNanos);
-        }
-        
-    }
-    
+    void destroy();
 }

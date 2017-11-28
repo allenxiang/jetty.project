@@ -38,6 +38,7 @@ import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.io.BlockingCyclicTimeoutTask;
 import org.eclipse.jetty.io.ClientConnectionFactory;
 import org.eclipse.jetty.io.CyclicTimeoutTask;
 import org.eclipse.jetty.util.BlockingArrayQueue;
@@ -510,7 +511,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     }
     
     // The TimeoutTask that expires when the next check of expiry is needed
-    private class TimeoutTask extends CyclicTimeoutTask
+    private class TimeoutTask extends BlockingCyclicTimeoutTask
     {
         public TimeoutTask(Scheduler scheduler)
         {

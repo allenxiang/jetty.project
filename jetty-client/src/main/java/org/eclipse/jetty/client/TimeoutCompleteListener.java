@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
-import org.eclipse.jetty.io.CyclicTimeoutTask;
+import org.eclipse.jetty.io.BlockingCyclicTimeoutTask;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.Scheduler;
 
-public class TimeoutCompleteListener extends CyclicTimeoutTask implements Response.CompleteListener
+public class TimeoutCompleteListener extends BlockingCyclicTimeoutTask implements Response.CompleteListener
 {
     private static final Logger LOG = Log.getLogger(TimeoutCompleteListener.class);
 
