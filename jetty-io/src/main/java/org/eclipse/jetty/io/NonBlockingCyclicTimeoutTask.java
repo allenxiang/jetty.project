@@ -22,6 +22,7 @@ import static java.lang.Long.MAX_VALUE;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.eclipse.jetty.util.thread.Scheduler;
 
@@ -62,15 +63,14 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
      */
     public void schedule(long delay, TimeUnit units) throws IllegalStateException
     {
+        schedules.increment();
         long now = System.nanoTime();
         long expireAtNanos = now + units.toNanos(delay);
         
-        Expiry old_expiry;
-        Expiry new_expiry;
         Schedule new_schedule;
-        do
+        while(true)
         {
-            old_expiry = _expiry.get();
+            Expiry old_expiry = _expiry.get();
             new_schedule = null;
 
             if ( old_expiry._expireAt!=MAX_VALUE)
@@ -83,10 +83,12 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
                 scheduled = new_schedule = new Schedule(now,expireAtNanos,scheduled);
             
             // Create the new expiry state
-            new_expiry = new Expiry(expireAtNanos,scheduled);
+            Expiry new_expiry = new Expiry(expireAtNanos,scheduled);
+            
+            if (_expiry.compareAndSet(old_expiry,new_expiry))
+                break;
+            casloops.increment();
         }
-        // loop until we succeed in updating state
-        while(!_expiry.compareAndSet(old_expiry,new_expiry));
 
         // If we created a new head of the schedule chain, we need to actually schedule it
         if (new_schedule!=null)
@@ -101,16 +103,16 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
      */
     public boolean reschedule(long delay, TimeUnit units)
     {   
+        reschedules.increment();
         long now = System.nanoTime();
         long expireAtNanos = now + units.toNanos(delay);
         
         boolean was_scheduled;
-        Expiry old_expiry;
-        Expiry new_expiry;
         Schedule new_schedule;
-        do
+        while(true)
         {
-            old_expiry = _expiry.get();
+            Expiry old_expiry = _expiry.get();
+            
             new_schedule = null;
             was_scheduled = old_expiry._expireAt!=MAX_VALUE;
 
@@ -121,10 +123,12 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
                 scheduled = new_schedule = new Schedule(now,expireAtNanos,scheduled);
 
             // Create the new expiry state
-            new_expiry = new Expiry(expireAtNanos,scheduled);
+            Expiry new_expiry = new Expiry(expireAtNanos,scheduled);
+            
+            if (_expiry.compareAndSet(old_expiry,new_expiry))
+                break;
+            casloops.increment();
         }
-        // loop until we succeed in updating state
-        while(!_expiry.compareAndSet(old_expiry,new_expiry));
 
         // If we created a new head of the schedule chain, we need to actually schedule it
         if (new_schedule!=null)
@@ -201,6 +205,7 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         
         void schedule(long now)
         {
+            realschedules.increment();
             _task = _scheduler.schedule(this,_scheduledAt-now,TimeUnit.NANOSECONDS);
         }
         
@@ -219,15 +224,13 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
             
             long now;
             Schedule new_schedule;
-            Expiry old_expiry;
-            Expiry new_expiry;
-            do
+            while (true)
             {
                 now = System.nanoTime();
                 new_schedule = null;
                 expired = false;
-                old_expiry = _expiry.get();
-                new_expiry = old_expiry;
+                Expiry old_expiry = _expiry.get();
+                Expiry new_expiry = old_expiry;
 
                 // look for ourselves at the current Expiry and the Schedule chain.
                 // We SHOULD be the head of the chain, but if there are strange dispatch
@@ -265,9 +268,12 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
                         break;
                     }
                 }
+
+                // Loop until we succeed in changing state or we are a noop!
+                if (new_expiry==old_expiry || _expiry.compareAndSet(old_expiry,new_expiry))
+                    break;
+                casloops.increment();
             }
-            // Loop until we succeed in changing state or we are a noop!
-            while(new_expiry!=old_expiry && !_expiry.compareAndSet(old_expiry,new_expiry));
 
             // If we created a new head of the schedule chain, we need to actually schedule it
             if (new_schedule!=null)
@@ -283,5 +289,19 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         {
             return String.format("Scheduled@%x:%d->%s",hashCode(),_scheduledAt,_chain);
         }
+    }
+    
+    final static LongAdder schedules = new LongAdder();
+    final static LongAdder reschedules = new LongAdder();
+    final static LongAdder casloops = new LongAdder();
+    final static LongAdder realschedules = new LongAdder();
+    public static void dump()
+    {
+        System.err.printf("%n=============================%n");
+        System.err.printf("schedules  =%,15d%n",schedules.sumThenReset());
+        System.err.printf("reschedules=%,15d%n",reschedules.sumThenReset());
+        System.err.printf("casloops   =%,15d%n",casloops.sumThenReset());
+        System.err.printf("realscheds =%,15d%n",realschedules.sumThenReset());
+        System.err.printf("-----------------------------%n");
     }
 }

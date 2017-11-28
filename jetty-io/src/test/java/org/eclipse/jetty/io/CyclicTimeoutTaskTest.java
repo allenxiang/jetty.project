@@ -89,6 +89,8 @@ public class CyclicTimeoutTaskTest
     @After
     public void tearDown() throws Exception
     {
+        if (_timeout instanceof NonBlockingCyclicTimeoutTask)
+            NonBlockingCyclicTimeoutTask.dump();
         _timeout.destroy();
         _timer.stop();
     }
