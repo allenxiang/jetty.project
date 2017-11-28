@@ -131,7 +131,7 @@ public abstract class BlockingCyclicTimeoutTask implements CyclicTimeoutTask
             while (scheduled!=null)
             {
                 scheduled._task.cancel();
-                scheduled = scheduled._chain;
+                scheduled = scheduled._next;
             }
         }
     }
@@ -143,13 +143,13 @@ public abstract class BlockingCyclicTimeoutTask implements CyclicTimeoutTask
     {
         final long _scheduledAt;
         final Scheduler.Task _task;
-        final Scheduled _chain;
+        final Scheduled _next;
         
         Scheduled(long now, long scheduledAt, Scheduled chain)
         {
             _scheduledAt = scheduledAt;
             _task = _scheduler.schedule(this,scheduledAt-now,TimeUnit.NANOSECONDS);
-            _chain = chain;
+            _next = chain;
         }
         
         @Override
@@ -164,25 +164,31 @@ public abstract class BlockingCyclicTimeoutTask implements CyclicTimeoutTask
                 Scheduled scheduled = _scheduled;
                 while (scheduled!=null)
                 {
-                    Scheduled last = scheduled;
-                    scheduled = scheduled._chain;
-                    if (last==this)
+                    if (scheduled==this)
+                    {
+                        // Only act if we are in the active chain
+                        
+                        // preserve the rest of the chain
+                        _scheduled = scheduled._next;
+                        
+                        // update expiry
+                        if (now>=_expireAtNanos)
+                        {
+                            expired = true;
+                            _expireAtNanos = MAX_VALUE;
+                        }
+                        else if (now!=MAX_VALUE)
+                        {
+                            schedule(now);
+                        }                    
+
                         break;
+                    } 
+                    scheduled = scheduled._next;
                 }
-                _scheduled = scheduled;
-                
-                
-                if (now>=_expireAtNanos)
-                {
-                    expired = true;
-                    _expireAtNanos = MAX_VALUE;
-                }
-                else if (now!=MAX_VALUE)
-                {
-                    schedule(now);
-                }                    
             }
             
+            // If we expired, do the callback
             if (expired)
                 onTimeoutExpired();
             

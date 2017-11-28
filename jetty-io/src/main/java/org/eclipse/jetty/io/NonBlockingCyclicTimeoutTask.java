@@ -158,9 +158,7 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         Schedule schedule = expiry==null?null:expiry._schedule;
         while (schedule!=null)
         {
-            Scheduler.Task task = schedule._task;
-            if (task!=null)
-                task.cancel();
+            schedule.destroy();
             schedule = schedule._chain;
         }
     }
@@ -201,9 +199,17 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
             _chain = chain;
         }
         
-        public void schedule(long now)
+        void schedule(long now)
         {
             _task = _scheduler.schedule(this,_scheduledAt-now,TimeUnit.NANOSECONDS);
+        }
+        
+        void destroy()
+        {
+            Scheduler.Task task = _task;
+            _task = null;
+            if (task!=null)
+                task.cancel();
         }
 
         @Override
