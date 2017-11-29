@@ -68,7 +68,7 @@ public class TimeoutCompleteListener extends CyclicTimeout implements Response.C
             LOG.debug("Scheduled timeout {} ms for {}", units.toMillis(delay), request);
         if (this.request.compareAndSet(null,request))
         {
-            reschedule(delay, units);
+            schedule(delay, units);
             return true;
         }
         return false;        

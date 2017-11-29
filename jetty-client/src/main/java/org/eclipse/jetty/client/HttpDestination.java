@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.client;
 
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.AsynchronousCloseException;
@@ -52,6 +50,8 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.eclipse.jetty.util.thread.Sweeper;
+
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 @ManagedObject
 public abstract class HttpDestination extends ContainerLifeCycle implements Destination, Closeable, Callback, Dumpable
@@ -301,7 +301,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
             if (delay<=0)
                 timeout.onTimeoutExpired();
             else
-                timeout.reschedule(delay,NANOSECONDS);
+                timeout.schedule(delay,NANOSECONDS);
         }
     }
     

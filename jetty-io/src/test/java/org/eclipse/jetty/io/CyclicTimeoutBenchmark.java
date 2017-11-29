@@ -40,13 +40,9 @@ public class CyclicTimeoutBenchmark
     final static int SPACE=64;
     final static AtomicLong INDEX = new AtomicLong();
             
-    static Runnable NEVER = new Runnable()
+    static Runnable NEVER = () ->
     {
-        @Override
-        public void run()
-        {    
-            throw new IllegalStateException("Should never expire!");        
-        }
+        throw new IllegalStateException("Should never expire!");
     };
 
     @State(Scope.Benchmark)
@@ -83,7 +79,6 @@ public class CyclicTimeoutBenchmark
         state._task[instance].cancel();
         state._task[instance] = state._timer.schedule(NEVER,10,TimeUnit.SECONDS);
     }
-        
 
     @State(Scope.Benchmark)
     public static class SchedulerXState
@@ -118,7 +113,6 @@ public class CyclicTimeoutBenchmark
         long padL;
         long padM;
         long padN;
-        
 
         @Setup
         public void setup() throws Exception
@@ -159,7 +153,6 @@ public class CyclicTimeoutBenchmark
         state._task[instance] = state._timer[(instance%8)*SPACE].schedule(NEVER,10,TimeUnit.SECONDS);
     }
 
-    
     @State(Scope.Benchmark)
     public static class NonBlockingState
     {
@@ -227,7 +220,7 @@ public class CyclicTimeoutBenchmark
     public void benchmarkNonBlocking(NonBlockingState state)
     {
         int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
-        state._task[instance].reschedule(10,TimeUnit.SECONDS);
+        state._task[instance].schedule(10,TimeUnit.SECONDS);
     }
     
     public static void main(String[] args) throws RunnerException 
@@ -242,7 +235,4 @@ public class CyclicTimeoutBenchmark
 
         new Runner(opt).run();
     }
-
-    
-    
 }
