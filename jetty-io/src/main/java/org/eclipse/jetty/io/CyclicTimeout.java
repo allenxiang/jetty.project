@@ -22,7 +22,6 @@ import static java.lang.Long.MAX_VALUE;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.LongAdder;
 
 import org.eclipse.jetty.util.thread.Scheduler;
 
@@ -32,7 +31,7 @@ import org.eclipse.jetty.util.thread.Scheduler;
  * This implementation is optimised assuming that the timeout will mostly
  * be cancelled and then reused with a similar value.
  */
-public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
+public abstract class CyclicTimeout
 {
     private final static Expiry NOT_SET = new Expiry(MAX_VALUE,null);
     
@@ -45,7 +44,7 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
     /**
      * @param scheduler A scheduler used to schedule checks for the idle timeout.
      */
-    public NonBlockingCyclicTimeoutTask(Scheduler scheduler)
+    public CyclicTimeout(Scheduler scheduler)
     {
         _scheduler = scheduler;
     }
@@ -69,28 +68,28 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         Schedule new_schedule;
         while(true)
         {
-            Expiry old_expiry = _expiry.get();
+            Expiry expiry = _expiry.get();
             new_schedule = null;
 
-            if ( old_expiry._expireAt!=MAX_VALUE)
+            if ( expiry._expireAt!=MAX_VALUE)
                 throw new IllegalStateException("Timeout pending");
                 
-            // We need a schedule chain that starts with a scheduledAt time at or
-            // before our expiry time
-            Schedule scheduled = old_expiry._schedule;
-            if (scheduled==null || scheduled._scheduledAt>expireAtNanos)
-                scheduled = new_schedule = new Schedule(now,expireAtNanos,scheduled);
+            // is the current schedule good to use? ie before our expiry time?
+            Schedule schedule = expiry._schedule;
+            if (schedule==null || schedule._scheduledAt>expireAtNanos)
+                // no, we neeed a new head of the schedule list
+                schedule = new_schedule = new Schedule(now,expireAtNanos,schedule); 
             
-            // Create the new expiry state
-            Expiry new_expiry = new Expiry(expireAtNanos,scheduled);
-            
-            if (_expiry.compareAndSet(old_expiry,new_expiry))
+            // Try to set a new Expiry. If we succeed, then we are good
+            if (_expiry.compareAndSet(expiry,new Expiry(expireAtNanos, schedule)))
                 break;
+            
+            // No! something must have changed, lets try again!
         }
 
         // If we created a new head of the schedule chain, we need to actually schedule it
         if (new_schedule!=null)
-            new_schedule.schedule(now);
+            new_schedule.setTheTimer(now);
     }
     
     /** 
@@ -104,50 +103,53 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         long now = System.nanoTime();
         long expireAtNanos = now + units.toNanos(delay);
         
-        boolean was_scheduled;
+        boolean was_set_to_expire;
         Schedule new_schedule;
         while(true)
         {
-            Expiry old_expiry = _expiry.get();
+            Expiry expiry = _expiry.get();
             
             new_schedule = null;
-            was_scheduled = old_expiry._expireAt!=MAX_VALUE;
+            was_set_to_expire = expiry._expireAt!=MAX_VALUE;
 
-            // We need a schedule chain that starts with a scheduledAt time at or
-            // before our expiry time
-            Schedule scheduled = old_expiry._schedule;
-            if (scheduled==null || scheduled._scheduledAt>expireAtNanos)
-                scheduled = new_schedule = new Schedule(now,expireAtNanos,scheduled);
-
-            // Create the new expiry state
-            Expiry new_expiry = new Expiry(expireAtNanos,scheduled);
+            // is the current schedule good to use? ie before our expiry time?
+            Schedule schedule = expiry._schedule;
+            if (schedule==null || schedule._scheduledAt>expireAtNanos)
+                // no, we neeed a new head of the schedule list
+                schedule = new_schedule = new Schedule(now,expireAtNanos,schedule); 
             
-            if (_expiry.compareAndSet(old_expiry,new_expiry))
+            // Try to set a new Expiry. If we succeed, then we are good
+            if (_expiry.compareAndSet(expiry,new Expiry(expireAtNanos, schedule)))
                 break;
+            
+            // No! something must have changed, lets try again!
         }
 
         // If we created a new head of the schedule chain, we need to actually schedule it
+        // Any Schedules that were created and discarded by failed CAS, will not be in the
+        // schedule chain, will not have a timer set and will be GC'd
         if (new_schedule!=null)
-            new_schedule.schedule(now);
+            new_schedule.setTheTimer(now);
         
-        return was_scheduled;
+        return was_set_to_expire;
     }
     
     public boolean cancel()
     {
-        boolean was_scheduled;
-        Expiry old_expiry;
+        boolean was_set_to_expire;
+        Expiry expiry;
         Expiry new_expiry;
-        do
+        while(true)
         {
-            old_expiry = _expiry.get();
-            was_scheduled = old_expiry._expireAt!=MAX_VALUE;
-            Schedule scheduled = old_expiry._schedule;
-            new_expiry = scheduled==null?NOT_SET:new Expiry(MAX_VALUE,scheduled);
+            expiry = _expiry.get();
+            was_set_to_expire = expiry._expireAt!=MAX_VALUE;
+            Schedule schedule = expiry._schedule;
+            new_expiry = schedule==null?NOT_SET:new Expiry(MAX_VALUE,schedule);
+            if (_expiry.compareAndSet(expiry,new_expiry))
+                break;
         }
-        while(!_expiry.compareAndSet(old_expiry,new_expiry));
 
-        return was_scheduled;
+        return was_set_to_expire;
     }
     
     public abstract void onTimeoutExpired();
@@ -159,7 +161,7 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         while (schedule!=null)
         {
             schedule.destroy();
-            schedule = schedule._chain;
+            schedule = schedule._next;
         }
     }
 
@@ -185,21 +187,23 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
     }
     
     /**
-     * A Scheduled expiry of a real timer.
+     * A Schedule chain of real timer tasks.
      */
     private class Schedule implements Runnable
     {
         final long _scheduledAt;
-        final Schedule _chain;
+        final Schedule _next;
+        
+        /* this is only used for destroy */
         volatile Scheduler.Task _task;
         
         Schedule(long now, long scheduledAt, Schedule chain)
         {
             _scheduledAt = scheduledAt;
-            _chain = chain;
+            _next = chain;
         }
         
-        void schedule(long now)
+        void setTheTimer(long now)
         {
             _task = _scheduler.schedule(this,_scheduledAt-now,TimeUnit.NANOSECONDS);
         }
@@ -215,73 +219,85 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         @Override
         public void run()
         {
-            boolean expired; 
-            
             long now;
+            boolean has_expired;
             Schedule new_schedule;
+            
             while (true)
             {
+                // reset every iteration
                 now = System.nanoTime();
                 new_schedule = null;
-                expired = false;
-                Expiry old_expiry = _expiry.get();
-                Expiry new_expiry = old_expiry;
+                has_expired = false;
+                Expiry expiry = _expiry.get();
+                Expiry new_expiry = expiry;
 
-                // look for ourselves at the current Expiry and the Schedule chain.
-                // We SHOULD be the head of the chain, but if there are strange dispatch
-                // delays from a Scheduler, then it is conceivable that Schedules will be
-                // expired out of order.   We handle this by later Schedules skipping any
-                // prior Schedules in the chain and Schedules become noops if they are not 
-                // in the chain.
+                // We must look for ourselves in the current schedule list.
+                // If we find ourselves, then we act and we use our tail for any new
+                // schedule list, effectively removing any schedules before us in the list (and making them no-ops).
+                // If we don't find ourselves, then a schedule that should have expired after us has already run
+                // and removed us from the list, so we become a noop.
                 
-                Schedule schedule = old_expiry._schedule;
+                // Walk the schedule chain looking for ourselves
+                Schedule schedule = expiry._schedule;
                 while (schedule!=null)
                 {
-                    Schedule last = schedule;
-                    schedule = schedule._chain;
-                    if (last==this)
+                    if (schedule!=this)
                     {
-                        // This scheduled is still in the chain, so we must act
-                        if (old_expiry._expireAt <= now)
-                        {
-                            // Expired
-                            expired = true;
-                            new_expiry = new Expiry(MAX_VALUE,schedule);
-                        }
-                        else if (old_expiry._expireAt!=MAX_VALUE)
-                        {
-                            // Not expired yet, need to update Schedule
-                            if (schedule==null || schedule._scheduledAt>old_expiry._expireAt)
-                                schedule = new_schedule = new Schedule(now,old_expiry._expireAt,schedule);
-                            new_expiry = new Expiry(old_expiry._expireAt,schedule);
-                        }
-                        else
-                        {
-                            // Not scheduled, but preserve scheduled chain.
-                            new_expiry = schedule==null?NOT_SET:new Expiry(MAX_VALUE,schedule);
-                        }
-                        break;
+                        // Not us, so look at next schedule in the list
+                        schedule = schedule._next;
+                        continue;
                     }
+
+                    // We are in the schedule list! So we have to act and we know our
+                    // tail has not expired (else it would have removed us from the list).
+                    // Remove ourselves (any any prior Schedules) from the schedule
+                    schedule = schedule._next;
+
+                    // Have we expired?
+                    if (expiry._expireAt <= now)
+                    {
+                        // Yes, we are Expired!
+                        has_expired = true;
+                        new_expiry = schedule==null?NOT_SET:new Expiry(MAX_VALUE,schedule);
+                    }
+                    else if (expiry._expireAt!=MAX_VALUE)
+                    {
+                        // We are not expired, but we are set to expire!                           
+                        // Is the current schedule good to use? ie before our expiry time?
+                        if (schedule==null || schedule._scheduledAt>expiry._expireAt)
+                            // no, we neeed a new head of the schedule list
+                            schedule = new_schedule = new Schedule(now,expiry._expireAt,schedule); 
+
+                        new_expiry = new Expiry(expiry._expireAt,schedule);
+                    }
+                    else
+                    {
+                        // Not scheduled, but preserve scheduled chain.
+                        new_expiry = schedule==null?NOT_SET:new Expiry(MAX_VALUE,schedule);
+                    }
+                    
+                    break;
                 }
 
                 // Loop until we succeed in changing state or we are a noop!
-                if (new_expiry==old_expiry || _expiry.compareAndSet(old_expiry,new_expiry))
+                if (new_expiry==expiry || _expiry.compareAndSet(expiry,new_expiry))
                     break;
             }
 
             // If we created a new head of the schedule chain, we need to actually schedule it
             if (new_schedule!=null)
-                new_schedule.schedule(now);
+                new_schedule.setTheTimer(now);
             
             // If we expired, then do the callback
-            if (expired)
+            if (has_expired)
                 onTimeoutExpired();
         }
         
         @Override
         public String toString()
         {
-            return String.format("Scheduled@%x:%d->%s",hashCode(),_scheduledAt,_chain);
+            return String.format("Scheduled@%x:%d->%s",hashCode(),_scheduledAt,_next);
         }
     }    
 }

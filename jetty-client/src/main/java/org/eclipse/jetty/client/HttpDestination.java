@@ -18,7 +18,6 @@
 
 package org.eclipse.jetty.client;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import java.io.Closeable;
@@ -38,9 +37,8 @@ import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
-import org.eclipse.jetty.io.BlockingCyclicTimeoutTask;
 import org.eclipse.jetty.io.ClientConnectionFactory;
-import org.eclipse.jetty.io.CyclicTimeoutTask;
+import org.eclipse.jetty.io.CyclicTimeout;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.HostPort;
@@ -69,7 +67,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     private final ClientConnectionFactory connectionFactory;
     private final HttpField hostField;
     private final AtomicLong nextTimeoutNanos = new AtomicLong(Long.MAX_VALUE);
-    private final CyclicTimeoutTask timeout;
+    private final CyclicTimeout timeout;
     private ConnectionPool connectionPool;
 
     public HttpDestination(HttpClient client, Origin origin)
@@ -296,8 +294,8 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         // If subsequently that exchange is removed from the queue, the timeout is not
         // cancelled, instead the entire queue is swept for expired exchanges and a new
         // timeout is set.        
-        long lastExpiresAtNanos = nextTimeoutNanos.getAndUpdate(e->Math.min(e,expiresAtNanos));
-        if (lastExpiresAtNanos!=expiresAtNanos)
+        long timeoutNanos = nextTimeoutNanos.getAndUpdate(e->Math.min(e,expiresAtNanos));
+        if (timeoutNanos!=expiresAtNanos)
         {
             long delay = expiresAtNanos-System.nanoTime();
             if (delay<=0)
@@ -511,7 +509,7 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     }
     
     // The TimeoutTask that expires when the next check of expiry is needed
-    private class TimeoutTask extends BlockingCyclicTimeoutTask
+    private class TimeoutTask extends CyclicTimeout
     {
         public TimeoutTask(Scheduler scheduler)
         {

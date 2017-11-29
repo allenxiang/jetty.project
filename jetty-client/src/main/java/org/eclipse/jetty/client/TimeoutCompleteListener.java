@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.client;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -27,12 +25,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
-import org.eclipse.jetty.io.BlockingCyclicTimeoutTask;
+import org.eclipse.jetty.io.CyclicTimeout;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.Scheduler;
 
-public class TimeoutCompleteListener extends BlockingCyclicTimeoutTask implements Response.CompleteListener
+public class TimeoutCompleteListener extends CyclicTimeout implements Response.CompleteListener
 {
     private static final Logger LOG = Log.getLogger(TimeoutCompleteListener.class);
 

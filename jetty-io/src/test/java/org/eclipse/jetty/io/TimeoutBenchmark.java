@@ -28,9 +28,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
-import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
-import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
@@ -41,7 +39,7 @@ public class TimeoutBenchmark
         @Override
         public void run()
         {    
-            throw new IllegalStateException("Should never expire!");        
+            System.err.println("EXPIRED");
         }
     };
 
@@ -52,15 +50,17 @@ public class TimeoutBenchmark
         volatile Scheduler.Task _task;
 
         @Setup
-        public void setup()
+        public void setup() throws Exception
         {
+            _timer.start();
             _task = _timer.schedule(NEVER,10,TimeUnit.SECONDS);
         }
         
         @TearDown
-        public void tearDown()
+        public void tearDown() throws Exception
         {
             _task.cancel();
+            _timer.stop();
         }
     }
     
@@ -69,7 +69,6 @@ public class TimeoutBenchmark
     {
         state._task.cancel();
         state._task = state._timer.schedule(NEVER,10,TimeUnit.SECONDS);
-        Blackhole.consumeCPU(1);
     }
     
     @State(Scope.Benchmark)
@@ -88,10 +87,9 @@ public class TimeoutBenchmark
     public void benchmarkVolatile(VolatileState state)
     {
         state._task = System.nanoTime();
-        Blackhole.consumeCPU(1);
     }
     
-    public static void main(String[] args) throws RunnerException 
+    public static void main(String[] args) throws Exception 
     {
         Options opt = new OptionsBuilder()
                 .include(TimeoutBenchmark.class.getSimpleName())
@@ -102,6 +100,8 @@ public class TimeoutBenchmark
                 .build();
 
         new Runner(opt).run();
+        
+        Thread.sleep(20000);
     }
 
     

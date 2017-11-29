@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.client;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 import java.net.CookieStore;
 import java.net.HttpCookie;
 import java.net.URI;
@@ -45,7 +43,7 @@ public abstract class HttpConnection implements Connection
     private static final Logger LOG = Log.getLogger(HttpConnection.class);
 
     private final HttpDestination destination;
-    private final TimeoutCompleteListener timeout;
+    private final TimeoutCompleteListener completeTimeout;
     private int idleTimeoutGuard;
     private long idleTimeoutStamp;
 
@@ -53,7 +51,7 @@ public abstract class HttpConnection implements Connection
     {
         this.destination = destination;
         this.idleTimeoutStamp = System.nanoTime();
-        this.timeout = new TimeoutCompleteListener(destination.getHttpClient().getScheduler());
+        this.completeTimeout = new TimeoutCompleteListener(destination.getHttpClient().getScheduler());
     }
 
     public HttpClient getHttpClient()
@@ -182,12 +180,14 @@ public abstract class HttpConnection implements Connection
         long timeoutAtNanos = exchange.getRequest().getTimeoutAtNanos();
         if (timeoutAtNanos>=0)
         {
-            exchange.getResponseListeners().add(timeout);
             long now = System.nanoTime();
             if (timeoutAtNanos<=now)
                 exchange.getRequest().abort(new TimeoutException("Total timeout " + exchange.getRequest().getTimeout() + " ms elapsed"));
             else
-                timeout.schedule(exchange.getRequest(),timeoutAtNanos-now,TimeUnit.NANOSECONDS);
+            {
+                exchange.getResponseListeners().add(completeTimeout);
+                completeTimeout.schedule(exchange.getRequest(),timeoutAtNanos-now,TimeUnit.NANOSECONDS);
+            }
         }
         
         // Forbid idle timeouts for the time window where

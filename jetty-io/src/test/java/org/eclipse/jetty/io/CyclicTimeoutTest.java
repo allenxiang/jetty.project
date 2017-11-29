@@ -18,12 +18,10 @@
 
 package org.eclipse.jetty.io;
 
-
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.junit.After;
@@ -32,31 +30,18 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
-@RunWith(Parameterized.class)
-public class CyclicTimeoutTaskTest
-{
-    @Parameterized.Parameters
-    public static Collection<Object[]> data()
-    {
-        Object[][] data = new Object[][]{
-            {Boolean.TRUE},
-            {Boolean.FALSE}
-        };
-        return Arrays.asList(data);
-    }
-    
-    final boolean _blocking;
+@RunWith(AdvancedRunner.class)
+public class CyclicTimeoutTest
+{    
     volatile boolean _open;
     volatile boolean _expired;
     ScheduledExecutorScheduler _timer = new ScheduledExecutorScheduler();
-    CyclicTimeoutTask _timeout;
+    CyclicTimeout _timeout;
     
 
-    public CyclicTimeoutTaskTest(Boolean blocking)
+    public CyclicTimeoutTest()
     {
-        _blocking = blocking.booleanValue();
     }
 
     @Before
@@ -65,16 +50,7 @@ public class CyclicTimeoutTaskTest
         _expired=false;
         _timer.start();
         
-        _timeout=_blocking
-        ?new BlockingCyclicTimeoutTask(_timer)
-        {
-            @Override
-            public void onTimeoutExpired()
-            {
-                _expired = true;
-            }
-        }
-        :new NonBlockingCyclicTimeoutTask(_timer)
+        _timeout=new CyclicTimeout(_timer)
         {
             @Override
             public void onTimeoutExpired()
