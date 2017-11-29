@@ -19,9 +19,9 @@
 package org.eclipse.jetty.io;
 
 
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
@@ -30,7 +30,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
-import org.openjdk.jmh.profile.LinuxPerfAsmProfiler;
+import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
@@ -39,6 +39,8 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 public class CyclicTimeoutTaskBenchmark
 {
     final static int INSTANCES=10000;
+    final static int SPACE=64;
+    final static AtomicLong INDEX = new AtomicLong();
             
     static Runnable NEVER = new Runnable()
     {
@@ -54,52 +56,217 @@ public class CyclicTimeoutTaskBenchmark
     {
         final ScheduledExecutorScheduler _timer = new ScheduledExecutorScheduler();
         volatile Scheduler.Task[] _task;
-        LongAdder schedules = new LongAdder();
 
         @Setup
         public void setup()
         {
-            _task = new Scheduler.Task[INSTANCES];
-            for (int i=_task.length; i-->0;)
+            INDEX.set(0);
+            _task = new Scheduler.Task[INSTANCES*SPACE];
+            for (int i=0;i<_task.length; i+=SPACE)
             {
                 _task[i] = _timer.schedule(NEVER,10,TimeUnit.SECONDS); 
-                schedules.increment();
             }
         }
         
         @TearDown
         public void tearDown()
         {
-            for (int i=_task.length; i-->0;)
+            for (int i=0;i<_task.length; i+=SPACE)
                 _task[i].cancel();
-
-            System.err.printf("%n=============================%n");
-            System.err.printf("schedules  =%,15d%n",schedules.sumThenReset());
-            System.err.printf("-----------------------------%n");
         }
     }
     
     @Benchmark
     public void benchmarkScheduler(SchedulerState state)
     {
-        int instance = ThreadLocalRandom.current().nextInt(state._task.length);
+        int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
         state._task[instance].cancel();
         state._task[instance] = state._timer.schedule(NEVER,10,TimeUnit.SECONDS);
-        state.schedules.increment();
+        Blackhole.consumeCPU(1);
+    }
+        
+
+    @State(Scope.Benchmark)
+    public static class SchedulerXState
+    {
+        long pad0;
+        long pad1;
+        long pad2;
+        long pad3;
+        long pad4;
+        long pad5;
+        long pad6;
+        long pad7;
+        
+        ScheduledExecutorScheduler[] _timer;
+
+        long pad8;
+        long pad9;
+        long padA;
+        long padB;
+        long padC;
+        long padD;
+        long padE;
+        long padF;
+        
+        volatile Scheduler.Task[] _task;
+        
+        long padG;
+        long padH;
+        long padI;
+        long padJ;
+        long padK;
+        long padL;
+        long padM;
+        long padN;
+        
+
+        @Setup
+        public void setup()
+        {
+            INDEX.set(0);
+            
+            _timer = new ScheduledExecutorScheduler[8*SPACE];
+            for (int i=0; i<_timer.length; i+=SPACE)
+                _timer[i] = new ScheduledExecutorScheduler();
+
+            
+            _task = new Scheduler.Task[INSTANCES*SPACE];
+            for (int i=0;i<_task.length; i+=SPACE)
+            {
+                _task[i] = _timer[(i%8)*SPACE].schedule(NEVER,10,TimeUnit.SECONDS); 
+            }
+        }
+        
+        @TearDown
+        public void tearDown()
+        {
+            for (int i=0;i<_task.length; i+=SPACE)
+                _task[i].cancel();
+        }
+    }
+    
+    @Benchmark
+    public void benchmarkSchedulerX(SchedulerXState state)
+    {
+        int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
+        state._task[instance].cancel();
+        state._task[instance] = state._timer[(instance%8)*SPACE].schedule(NEVER,10,TimeUnit.SECONDS);
+        Blackhole.consumeCPU(1);
     }
         
     
     @State(Scope.Benchmark)
-    public static class NonBlockingState
+    public static class BlockingState
     {
+        long pad0;
+        long pad1;
+        long pad2;
+        long pad3;
+        long pad4;
+        long pad5;
+        long pad6;
+        long pad7;
+        
         final ScheduledExecutorScheduler _timer = new ScheduledExecutorScheduler();
-        NonBlockingCyclicTimeoutTask[] _task;
+
+        long pad8;
+        long pad9;
+        long padA;
+        long padB;
+        long padC;
+        long padD;
+        long padE;
+        long padF;
+        
+        BlockingCyclicTimeoutTask[] _task;
+        
+        long padG;
+        long padH;
+        long padI;
+        long padJ;
+        long padK;
+        long padL;
+        long padM;
+        long padN;
         
         @Setup
         public void setup()
         {
-            _task = new NonBlockingCyclicTimeoutTask[INSTANCES];
-            for (int i=_task.length;i-->0;)
+            INDEX.set(0);
+            _task = new BlockingCyclicTimeoutTask[INSTANCES*SPACE];
+            for (int i=0;i<_task.length; i+=SPACE)
+            {
+                _task[i] = new BlockingCyclicTimeoutTask(_timer)
+                {
+                    @Override
+                    public void onTimeoutExpired()
+                    {
+                        throw new IllegalStateException("Should never expire!");
+                    }
+                };
+                _task[i].schedule(10,TimeUnit.SECONDS);
+            }
+        }
+        
+        @TearDown
+        public void tearDown()
+        {
+            for (int i=0;i<_task.length; i+=SPACE)
+                _task[i].cancel();
+        }
+    }
+    
+
+    @Benchmark
+    public void benchmarkBlocking(BlockingState state)
+    {
+        int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
+        state._task[instance].reschedule(10,TimeUnit.SECONDS);
+        Blackhole.consumeCPU(1);
+    }
+
+    
+    @State(Scope.Benchmark)
+    public static class NonBlockingState
+    {
+        long pad0;
+        long pad1;
+        long pad2;
+        long pad3;
+        long pad4;
+        long pad5;
+        long pad6;
+        long pad7;
+        
+        final ScheduledExecutorScheduler _timer = new ScheduledExecutorScheduler();
+
+        long pad8;
+        long pad9;
+        long padA;
+        long padB;
+        long padC;
+        long padD;
+        long padE;
+        long padF;
+        
+        NonBlockingCyclicTimeoutTask[] _task;
+        
+        long padG;
+        long padH;
+        long padI;
+        long padJ;
+        long padK;
+        long padL;
+        long padM;
+        long padN;
+        
+        @Setup
+        public void setup()
+        {
+            INDEX.set(0);
+            _task = new NonBlockingCyclicTimeoutTask[INSTANCES*SPACE];
+            for (int i=0;i<_task.length; i+=SPACE)
             {
                 _task[i] = new NonBlockingCyclicTimeoutTask(_timer)
                 {
@@ -116,9 +283,8 @@ public class CyclicTimeoutTaskBenchmark
         @TearDown
         public void tearDown()
         {
-            for (int i=_task.length;i-->0;)
+            for (int i=0;i<_task.length; i+=SPACE)
                 _task[i].cancel();
-            NonBlockingCyclicTimeoutTask.dump();
         }
     }
     
@@ -126,21 +292,132 @@ public class CyclicTimeoutTaskBenchmark
     @Benchmark
     public void benchmarkNonBlocking(NonBlockingState state)
     {
-        int instance = ThreadLocalRandom.current().nextInt(state._task.length);
+        int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
         state._task[instance].reschedule(10,TimeUnit.SECONDS);
+        Blackhole.consumeCPU(1);
+    }
+
+
+    @State(Scope.Benchmark)
+    public static class SimpleState
+    {
+        long pad0;
+        long pad1;
+        long pad2;
+        long pad3;
+        long pad4;
+        long pad5;
+        long pad6;
+        long pad7;
+        
+        AtomicReference<Object>[] _task;
+
+        long pad8;
+        long pad9;
+        long padA;
+        long padB;
+        long padC;
+        long padD;
+        long padE;
+        long padF;
+        
+        @Setup
+        public void setup()
+        {
+            INDEX.set(0);
+            _task = new AtomicReference[INSTANCES*SPACE];
+            for (int i=0;i<_task.length; i+=SPACE)
+                _task[i] = new AtomicReference<>();
+        }
+    }    
+    
+    @Benchmark
+    public void benchmarkSimple(SimpleState state)
+    {
+        int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
+        while(true)
+        {
+            Object o = state._task[instance].get();
+            if (state._task[instance].compareAndSet(o,new Long(System.nanoTime())))
+                break;
+        }
+        Blackhole.consumeCPU(1);
+    }
+
+
+    public static class VolatileHolder
+    {
+        long pad0;
+        long pad1;
+        long pad2;
+        long pad3;
+        long pad4;
+        long pad5;
+        long pad6;
+        long pad7;
+        
+        volatile long _timestamp;
+
+        long pad8;
+        long pad9;
+        long padA;
+        long padB;
+        long padC;
+        long padD;
+        long padE;
+        long padF;
+        
     }
     
+    @State(Scope.Benchmark)
+    public static class VolatileState
+    {
+        long pad0;
+        long pad1;
+        long pad2;
+        long pad3;
+        long pad4;
+        long pad5;
+        long pad6;
+        long pad7;
+        
+        VolatileHolder[] _task;
+
+        long pad8;
+        long pad9;
+        long padA;
+        long padB;
+        long padC;
+        long padD;
+        long padE;
+        long padF;
+        
+        @Setup
+        public void setup()
+        {
+            INDEX.set(0);
+            _task = new VolatileHolder[INSTANCES*SPACE];
+            for (int i=0;i<_task.length; i+=SPACE)
+                _task[i] = new VolatileHolder();
+        }
+    }    
     
+    @Benchmark
+    public void benchmarkVolatile(VolatileState state)
+    {
+        int instance = (int)((INDEX.incrementAndGet()%INSTANCES)*SPACE);
+        state._task[instance]._timestamp = System.nanoTime();
+        Blackhole.consumeCPU(1);
+    }
     
     public static void main(String[] args) throws RunnerException 
     {
         Options opt = new OptionsBuilder()
                 .include(CyclicTimeoutTaskBenchmark.class.getSimpleName())
-                .warmupIterations(2)
-                .measurementIterations(4)
+                .warmupIterations(8)
+                .measurementIterations(8)
                 .threads(8)
                 .forks(1)
-                .addProfiler(LinuxPerfAsmProfiler.class)
                 .build();
 
         new Runner(opt).run();

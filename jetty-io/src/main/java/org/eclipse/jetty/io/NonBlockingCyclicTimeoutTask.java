@@ -63,7 +63,6 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
      */
     public void schedule(long delay, TimeUnit units) throws IllegalStateException
     {
-        schedules.increment();
         long now = System.nanoTime();
         long expireAtNanos = now + units.toNanos(delay);
         
@@ -87,7 +86,6 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
             
             if (_expiry.compareAndSet(old_expiry,new_expiry))
                 break;
-            casloops.increment();
         }
 
         // If we created a new head of the schedule chain, we need to actually schedule it
@@ -103,7 +101,6 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
      */
     public boolean reschedule(long delay, TimeUnit units)
     {   
-        reschedules.increment();
         long now = System.nanoTime();
         long expireAtNanos = now + units.toNanos(delay);
         
@@ -127,7 +124,6 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
             
             if (_expiry.compareAndSet(old_expiry,new_expiry))
                 break;
-            casloops.increment();
         }
 
         // If we created a new head of the schedule chain, we need to actually schedule it
@@ -205,7 +201,6 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         
         void schedule(long now)
         {
-            realschedules.increment();
             _task = _scheduler.schedule(this,_scheduledAt-now,TimeUnit.NANOSECONDS);
         }
         
@@ -272,7 +267,6 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
                 // Loop until we succeed in changing state or we are a noop!
                 if (new_expiry==old_expiry || _expiry.compareAndSet(old_expiry,new_expiry))
                     break;
-                casloops.increment();
             }
 
             // If we created a new head of the schedule chain, we need to actually schedule it
@@ -289,19 +283,5 @@ public abstract class NonBlockingCyclicTimeoutTask implements CyclicTimeoutTask
         {
             return String.format("Scheduled@%x:%d->%s",hashCode(),_scheduledAt,_chain);
         }
-    }
-    
-    final static LongAdder schedules = new LongAdder();
-    final static LongAdder reschedules = new LongAdder();
-    final static LongAdder casloops = new LongAdder();
-    final static LongAdder realschedules = new LongAdder();
-    public static void dump()
-    {
-        System.err.printf("%n=============================%n");
-        System.err.printf("schedules  =%,15d%n",schedules.sumThenReset());
-        System.err.printf("reschedules=%,15d%n",reschedules.sumThenReset());
-        System.err.printf("casloops   =%,15d%n",casloops.sumThenReset());
-        System.err.printf("realscheds =%,15d%n",realschedules.sumThenReset());
-        System.err.printf("-----------------------------%n");
-    }
+    }    
 }
