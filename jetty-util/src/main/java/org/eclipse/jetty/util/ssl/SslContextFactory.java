@@ -1147,22 +1147,29 @@ public class SslContextFactory extends AbstractLifeCycle implements Dumpable
         TrustManager[] managers = null;
         if (trustStore != null)
         {
+            TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(_trustManagerFactoryAlgorithm);
+
             // Revocation checking is only supported for PKIX algorithm
             if (isValidatePeerCerts() && "PKIX".equalsIgnoreCase(getTrustManagerFactoryAlgorithm()))
             {
                 PKIXBuilderParameters pbParams = newPKIXBuilderParameters(trustStore, crls);
 
-                TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(_trustManagerFactoryAlgorithm);
                 trustManagerFactory.init(new CertPathTrustManagerParameters(pbParams));
-
-                managers = trustManagerFactory.getTrustManagers();
             }
             else
             {
-                TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(_trustManagerFactoryAlgorithm);
                 trustManagerFactory.init(trustStore);
+            }
 
-                managers = trustManagerFactory.getTrustManagers();
+            managers = trustManagerFactory.getTrustManagers();
+
+            if ((_wantClientAuth || _needClientAuth) && _trustStoreResource != null) {
+                TrustManager reloadableTrustManager = new ReloadableX509TrustManager(new SecurityStore(_trustStoreType, _trustStoreResource, _trustStorePassword), trustManagerFactory);
+                for (int i = 0; i < managers.length; i++) {
+                    if (managers[i] instanceof X509TrustManager) {
+                        managers[i] = reloadableTrustManager;
+                    }
+                }
             }
         }
 
